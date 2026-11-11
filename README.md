@@ -3,27 +3,38 @@
 Gedeelde agenda voor de auto van Boris, Job en Mama.
 
 - Agenda van 2026 met per dag 3 dagdelen: ochtend, middag, avond
-- Dagdelen aanvragen, met een opmerking per dagdeel en een algemene opmerking
-- Goedgekeurd als **beide** anderen akkoord geven; één afwijzing = afgewezen
-- Meldingen-tab met badge, live bijgewerkt
-- Opslag in Supabase, dubbele boekingen worden door de database geweigerd
+- Aanvragen met opmerking per dagdeel; goedgekeurd als **beide** anderen akkoord zijn
+- Opslag in Supabase, live bijgewerkt, dubbele boekingen geweigerd
+- Pushmeldingen op je telefoon bij aanvraag, akkoord, afwijzing en intrekking
 
-## Installatie (±5 minuten)
+## 1. Supabase
+1. SQL Editor → plak `supabase/schema.sql` → Run
+2. Project Settings → API → kopieer Project URL + anon key naar `config.js`
 
-1. Maak een gratis project op https://supabase.com (regio: Frankfurt/EU).
-2. Ga naar **SQL Editor → New query**, plak de inhoud van `supabase/schema.sql` en klik **Run**.
-3. Ga naar **Project Settings → API** en kopieer de **Project URL** en de **anon public key**.
-4. Vul die in `config.js` in.
-5. Zet de map in GitHub en koppel de repo aan Vercel (Framework: *Other*, geen build command).
+## 2. Vercel
+Zet de map in GitHub en importeer in Vercel (Framework: *Other*, geen build command).
+Voeg onder **Settings → Environment Variables** toe:
 
-Zonder ingevulde `config.js` draait de site in demo-modus (niets wordt bewaard).
+| Naam | Waarde |
+|---|---|
+| `SUPABASE_URL` | je Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → *service_role* (geheim!) |
+| `VAPID_PUBLIC_KEY` | dezelfde als `vapidPublicKey` in `config.js` |
+| `VAPID_PRIVATE_KEY` | geheim, niet in GitHub zetten |
+| `VAPID_SUBJECT` | `mailto:info@flyingimages.nl` |
+| `NOTIFY_SECRET` | zelfgekozen geheime string |
 
-## Bestanden
-- `index.html` — de hele app
-- `config.js` — Supabase URL + anon key
-- `supabase/schema.sql` — tabellen, controles en rechten
-- `favicon.png`, `favicon.ico`, `apple-touch-icon.png` — icoon
+Daarna **Redeploy**.
+
+## 3. Pushmeldingen koppelen
+SQL Editor → plak `supabase/push.sql`, vul onderaan je Vercel-URL en `NOTIFY_SECRET` in → Run.
+
+## 4. Op de telefoon
+- **iPhone (iOS 16.4+):** open de site in Safari → Deel → *Zet op beginscherm* → open via het icoon → tab Meldingen → *Meldingen aanzetten*
+- **Android:** open in Chrome → tab Meldingen → *Meldingen aanzetten* (optioneel: *Toevoegen aan startscherm*)
+
+Iedereen kiest eerst zijn eigen naam; meldingen gaan naar de naam die op dat toestel gekozen is.
 
 ## Let op
-Er is geen echte login: wie de link heeft, kan als iedereen een aanvraag doen of stemmen.
-Deel de link dus alleen met het gezin. Pushmeldingen komen in een volgende stap.
+Geen echte login: wie de link heeft kan als iedereen aanvragen of stemmen. Deel de link alleen met het gezin.
+Zet nooit de service_role key, VAPID_PRIVATE_KEY of NOTIFY_SECRET in GitHub.
