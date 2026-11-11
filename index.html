@@ -132,6 +132,8 @@ textarea:focus{outline:none;border-color:var(--ink)}
 </head>
 <body>
 <div class="app" id="app"></div>
+<script src="config.js" onerror="void 0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 const PEOPLE = ["Boris","Job","Mama"];
 const COLOR = {Boris:"var(--boris)",Job:"var(--job)",Mama:"var(--mama)"};
@@ -205,7 +207,37 @@ function toast(msg){
 }
 
 /* ---------- data ---------- */
+/* Supabase: actief als config.js een url + anonKey zet */
+const SB_CFG = window.AUTO_AGENDA_SUPABASE;
+const useSupabase = !!(SB_CFG && SB_CFG.url && SB_CFG.anonKey && !/JOUW/.test(SB_CFG.url) && window.supabase);
+let sbReloadTimer=null;
+async function sbLoad(){
+  const sb=state.sb;
+  const [rq,vt]=await Promise.all([
+    sb.from("requests").select("*").order("created_at",{ascending:true}),
+    sb.from("votes").select("*")
+  ]);
+  if(rq.error||vt.error) throw (rq.error||vt.error);
+  const votes={};
+  vt.data.forEach(v=>{(votes[v.request_id]=votes[v.request_id]||{})[v.voter]=v.vote});
+  state.requests=rq.data.map(r=>({id:r.id,by:r.by_name,items:r.items||[],note:r.note||"",cancelled:r.cancelled,created:r.created_at,approvals:votes[r.id]||{}}));
+  state.mode="supabase"; state.loadNote=false;
+  notifyNew(); render();
+}
+function sbReload(){ clearTimeout(sbReloadTimer); sbReloadTimer=setTimeout(()=>sbLoad().catch(()=>{}),250); }
+async function initSupabase(){
+  state.sb=window.supabase.createClient(SB_CFG.url,SB_CFG.anonKey);
+  const timer=setTimeout(()=>{state.loadNote=true;render()},10000);
+  try{ await sbLoad(); }catch(e){ toast("Kan de database niet bereiken"); }
+  clearTimeout(timer);
+  state.sb.channel("auto-agenda")
+    .on("postgres_changes",{event:"*",schema:"public",table:"requests"},sbReload)
+    .on("postgres_changes",{event:"*",schema:"public",table:"votes"},sbReload)
+    .subscribe();
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden) sbReload(); });
+}
 async function initDb(){
+  if(useSupabase) return initSupabase();
   let timer=setTimeout(()=>{state.loadNote=true;render()},10000);
   let db=null;
   try{ db = await window.claude?.use?.("db"); }catch(e){ db=null; }
@@ -234,10 +266,24 @@ function notifyNew(){
   }
 }
 async function createReq(data){
+  if(state.mode==="supabase"){
+    const {error}=await state.sb.from("requests").insert({by_name:data.by,items:data.items,note:data.note});
+    if(error) throw error; return sbLoad();
+  }
   if(state.mode==="db"){ await state.db.collection("requests").add(data); }
   else{ localStore.push({id:"l"+Date.now(),...data}); state.requests=[...localStore]; render(); }
 }
 async function updateReq(id,patch){
+  if(state.mode==="supabase"){
+    if(patch.approvals){
+      const rows=Object.entries(patch.approvals).map(([voter,vote])=>({request_id:id,voter,vote}));
+      const {error}=await state.sb.from("votes").upsert(rows,{onConflict:"request_id,voter"}); if(error) throw error;
+    }
+    if("cancelled" in patch){
+      const {error}=await state.sb.from("requests").update({cancelled:patch.cancelled}).eq("id",id); if(error) throw error;
+    }
+    return sbLoad();
+  }
   if(state.mode==="db"){ await state.db.doc("requests/"+id).update(patch); }
   else{
     const r=localStore.find(x=>x.id===id);
@@ -249,7 +295,7 @@ async function updateReq(id,patch){
 async function guarded(fn,okMsg){
   if(state.busy) return; state.busy=true; render();
   try{ await fn(); if(okMsg) toast(okMsg); }
-  catch(e){ toast(e && e.code==="invalid_argument" ? "Je hebt geen schrijfrechten op deze agenda." : "Opslaan lukte niet, probeer opnieuw."); }
+  catch(e){ toast(e && /slot_taken/.test(e.message||"") ? "Een dagdeel is net door iemand anders aangevraagd." : e && e.code==="invalid_argument" ? "Je hebt geen schrijfrechten op deze agenda." : "Opslaan lukte niet, probeer opnieuw."); }
   state.busy=false; render();
 }
 
